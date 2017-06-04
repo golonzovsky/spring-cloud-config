@@ -47,12 +47,12 @@ import org.eclipse.jgit.transport.OpenSshConfig.Host;
 import org.eclipse.jgit.transport.SshSessionFactory;
 import org.eclipse.jgit.transport.TagOpt;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
-import org.eclipse.jgit.util.FileUtils;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.cloud.config.server.support.PassphraseCredentialsProvider;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.io.UrlResource;
 import org.springframework.util.Assert;
+import org.springframework.util.FileSystemUtils;
 import org.springframework.util.StringUtils;
 
 import com.jcraft.jsch.Session;
@@ -91,7 +91,7 @@ public class JGitEnvironmentRepository extends AbstractScmEnvironmentRepository
 	private JGitEnvironmentRepository.JGitFactory gitFactory = new JGitEnvironmentRepository.JGitFactory();
 
 	private String defaultLabel = DEFAULT_LABEL;
-	
+
 	/**
 	 * The credentials provider to use to connect to the Git repository.
 	 */
@@ -238,7 +238,7 @@ public class JGitEnvironmentRepository extends AbstractScmEnvironmentRepository
 	 */
 	private void initClonedRepository() throws GitAPIException, IOException {
 		if (!getUri().startsWith(FILE_URI_PREFIX)) {
-			deleteBaseDirIfExists();
+			cleanBaseDir();
 			Git git = cloneToBasedir();
 			if (git != null) {
 				git.close();
@@ -375,13 +375,12 @@ public class JGitEnvironmentRepository extends AbstractScmEnvironmentRepository
 		}
 	}
 
-	// Synchronize here so that multiple requests don't all try and delete the base dir
+	// Synchronize here so that multiple requests don't all try to clean the base dir
 	// together (this is a once only operation, so it only holds things up on the first
 	// request).
 	private synchronized Git copyRepository() throws IOException, GitAPIException {
-		deleteBaseDirIfExists();
-		getBasedir().mkdirs();
-		Assert.state(getBasedir().exists(), "Could not create basedir: " + getBasedir());
+		cleanBaseDir();
+
 		if (getUri().startsWith(FILE_URI_PREFIX)) {
 			return copyFromLocalRepository();
 		}
@@ -391,8 +390,7 @@ public class JGitEnvironmentRepository extends AbstractScmEnvironmentRepository
 	}
 
 	private Git openGitRepository() throws IOException {
-		Git git = this.gitFactory.getGitByOpen(getWorkingDirectory());
-		return git;
+		return this.gitFactory.getGitByOpen(getWorkingDirectory());
 	}
 
 	private Git copyFromLocalRepository() throws IOException {
@@ -414,18 +412,16 @@ public class JGitEnvironmentRepository extends AbstractScmEnvironmentRepository
 			return clone.call();
 		}
 		catch (GitAPIException e) {
-			deleteBaseDirIfExists();
+			cleanBaseDir();
 			throw e;
 		}
 	}
 
-	private void deleteBaseDirIfExists() {
-		if (getBasedir().exists()) {
-			try {
-				FileUtils.delete(getBasedir(), FileUtils.RECURSIVE);
-			}
-			catch (IOException e) {
-				throw new IllegalStateException("Failed to initialize base directory", e);
+	private void cleanBaseDir() {
+		File[] children = getBasedir().listFiles();
+		if (children != null) {
+			for (File child : children) {
+				FileSystemUtils.deleteRecursively(child);
 			}
 		}
 	}
